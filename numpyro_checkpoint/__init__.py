@@ -42,10 +42,10 @@ def warmup(
     model_args,
     model_kwargs,
 ):
-    left = num_warmup - state.i
+    left = int(num_warmup - state.i)
 
     while left > 0:
-        length = int(min(left, num_checkpoint))
+        length = min(left, num_checkpoint)
         
         fn = lambda state, i: (
             kernel.sample(
@@ -59,12 +59,14 @@ def warmup(
                 length,
                 print_rate = num_progress,
                 tqdm_type = 'std',
-                desc = f'warmup {left} / {num_warmup}',
+                desc = f'warmup {num_warmup - left} / {num_warmup}',
             )(fn)
 
         state, _ = jax.lax.scan(fn, state, jnp.arange(length))
-        save(file, (state, None))
         left -= length
+
+        save(file, (state, None))
+        print(num_warmup - left, '/', num_warmup, 'saved warmup checkpoint:', file)
 
     return state
 
@@ -81,10 +83,10 @@ def sample(
     model_args,
     model_kwargs,
 ):
-    left = num_warmup + num_samples - state.i
+    left = int(num_warmup + num_samples - state.i)
 
     while left > 0:
-        length = int(min(left, num_checkpoint))
+        length = min(left, num_checkpoint)
 
         fn = lambda state, i: (
             kernel.sample(
@@ -98,7 +100,7 @@ def sample(
                 length,
                 print_rate = num_progress,
                 tqdm_type = 'std',
-                desc = f'sample {left} / {num_samples}',
+                desc = f'sample {num_samples - left} / {num_samples}',
             )(fn)
 
         state, new_z = jax.lax.scan(fn, state, jnp.arange(length))
@@ -112,9 +114,10 @@ def sample(
         else:
             z = {key: jnp.concatenate([z[key], new_z[key]]) for key in z}
 
-        save(file, (state, z))
-
         left -= length
+
+        save(file, (state, z))
+        print(num_samples - left, '/', num_samples, 'saved sample checkpoint:', file)
 
     return state, z
 
@@ -156,5 +159,5 @@ def run(
         model_args,
         model_kwargs,
     )
-        
+
     return state, z
