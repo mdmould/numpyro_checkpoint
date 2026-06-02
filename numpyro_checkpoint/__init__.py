@@ -8,6 +8,7 @@ import numpyro
 
 
 # TODO: make serialization safe
+# TODO: save new updates rather than whole chain every time
 def save(file, data):
     with open(file, 'wb') as f:
         pickle.dump(data, f)
@@ -18,7 +19,9 @@ def load(file):
         return pickle.load(f)
 
 
-def init(file, kernel, rng_key, num_warmup, init_params, model_args, model_kwargs):
+def init(
+    file, kernel, rng_key, num_warmup, init_params, model_args, model_kwargs,
+):
     if os.path.exists(file):
         state, z, i = load(file)
     else:
@@ -48,7 +51,7 @@ def warmup(
 
     while i < num_warmup:
         length = min(num_warmup - i, num_checkpoint)
-        
+
         fn = lambda state, i: (
             kernel.sample(
                 state, model_args = model_args, model_kwargs = model_kwargs,
@@ -73,6 +76,7 @@ def warmup(
     return state, z, i
 
 
+## TODO: use fori_collect with progbar instead?
 def sample(
     file,
     kernel,
@@ -88,6 +92,8 @@ def sample(
 
     while i < num_warmup + num_samples:
         length = min(num_warmup + num_samples - i, num_checkpoint)
+        start = i - num_warmup
+        stop = i - num_warmup + length
 
         fn = lambda state, i: (
             kernel.sample(
@@ -95,26 +101,29 @@ def sample(
             ),
             state.z,
         )
-        
+
         if num_progress is not None:
             fn = jax_tqdm.scan_tqdm(
                 length,
                 print_rate = num_progress,
                 tqdm_type = 'std',
-                desc = f'sample {i - num_warmup}-{i - num_warmup + length} / {num_samples}',
+                desc = f'sample {start}-{stop} / {num_samples}',
             )(fn)
 
         state, new_z = jax.lax.scan(fn, state, jnp.arange(length))
 
-        # TODO: maybe need to map or scan
-        print(f'postprocess {i - num_warmup}-{i - num_warmup + length}')
-#        new_z = numpyro.infer.util.constrain_fn(
-#            kernel.model, model_args, model_kwargs, new_z, return_deterministic = True,
-#        )
-        post_z = numpyro.infer.Predictive(kernel.model, posterior_samples = new_z)(
-            state.rng_key, *model_args, **model_kwargs,
-        )
-        new_z = {**new_z, **post_z}
+        postprocess_fn = kernel.postprocess_fn(model_args, model_kwargs)
+        fn = lambda _, iz: (None, postprocess_fn(iz[1]))
+
+        if num_progress is not None:
+            fn = jax_tqdm.scan_tqdm(
+                length,
+                print_rate = num_progress,
+                tqdm_type = 'std',
+                desc = f'postprocess {start}-{stop}',
+            )(fn)
+
+        _, new_z = jax.lax.scan(fn, None, (jnp.arange(length), new_z))
 
         if z is None:
             z = new_z
@@ -142,9 +151,14 @@ def run(
 ):
     init_params = None
     state = init(
-        file, kernel, rng_key, num_warmup, init_params, model_args, model_kwargs,
+        file,
+        kernel,
+        rng_key,
+        num_warmup,
+        init_params,
+        model_args,
+        model_kwargs,
     )
-
     state = warmup(
         file,
         kernel,
@@ -155,7 +169,6 @@ def run(
         model_args,
         model_kwargs,
     )
-
     state = sample(
         file,
         kernel,
@@ -167,5 +180,4 @@ def run(
         model_args,
         model_kwargs,
     )
-
     return state
