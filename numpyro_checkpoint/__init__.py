@@ -8,6 +8,7 @@ import jax_tqdm
 import numpyro
 
 
+# TODO: make serialization safe
 def save(file, data):
     with open(file, 'wb') as f:
         pickle.dump(data, f)
@@ -18,18 +19,20 @@ def load(file):
         return pickle.load(f)
 
 
-def init(file, kernel, key, num_warmup, model_args, model_kwargs):
+def init(file, kernel, rng_key, num_warmup, init_params, model_args, model_kwargs):
     if os.path.exists(file):
-        state, z = load(file)
+        state, z, i = load(file)
     else:
         state = kernel.init(
-            key,
+            rng_key = rng_key,
             num_warmup = num_warmup,
+            init_params = init_params,
             model_args = model_args,
             model_kwargs = model_kwargs,
         )
         z = None
-    return state, z
+        i = 0
+    return state, z, i
 
 
 def warmup(
@@ -42,10 +45,10 @@ def warmup(
     model_args,
     model_kwargs,
 ):
-    left = int(num_warmup - state.i)
+    state, z, i = state
 
-    while left > 0:
-        length = min(left, num_checkpoint)
+    while i < num_warmup:
+        length = min(num_warmup - i, num_checkpoint)
         
         fn = lambda state, i: (
             kernel.sample(
@@ -59,23 +62,22 @@ def warmup(
                 length,
                 print_rate = num_progress,
                 tqdm_type = 'std',
-                desc = f'warmup {num_warmup - left} / {num_warmup}',
+                desc = f'warmup {i} / {num_warmup}',
             )(fn)
 
         state, _ = jax.lax.scan(fn, state, jnp.arange(length))
-        left -= length
+        i += length
 
-        save(file, (state, None))
-        print(num_warmup - left, '/', num_warmup, 'saved warmup checkpoint:', file)
+        save(file, (state, z, i))
+        print(i, '/', num_warmup, 'saved warmup checkpoint:', file)
 
-    return state
+    return state, z, i
 
 
 def sample(
     file,
     kernel,
     state,
-    z,
     num_warmup,
     num_samples,
     num_checkpoint,
@@ -83,10 +85,10 @@ def sample(
     model_args,
     model_kwargs,
 ):
-    left = int(num_warmup + num_samples - state.i)
+    state, z, i = state
 
-    while left > 0:
-        length = min(left, num_checkpoint)
+    while i < num_warmup + num_samples:
+        length = min(num_warmup + num_samples - i, num_checkpoint)
 
         fn = lambda state, i: (
             kernel.sample(
@@ -100,26 +102,31 @@ def sample(
                 length,
                 print_rate = num_progress,
                 tqdm_type = 'std',
-                desc = f'sample {num_samples - left} / {num_samples}',
+                desc = f'sample {i} / {num_samples}',
             )(fn)
 
         state, new_z = jax.lax.scan(fn, state, jnp.arange(length))
 
-        new_z = numpyro.infer.util.constrain_fn(
-            kernel.model, model_args, model_kwargs, new_z, return_deterministic = True,
+        # TODO: maybe need to map or scan
+#        new_z = numpyro.infer.util.constrain_fn(
+#            kernel.model, model_args, model_kwargs, new_z, return_deterministic = True,
+#        )
+        post_z = numpyro.infer.Predictive(kernel.model, posterior_samples = new_z)(
+            state.rng_key, *model_args, **model_kwargs,
         )
+        new_z = {**new_z, **post_z}
 
         if z is None:
             z = new_z
         else:
             z = {key: jnp.concatenate([z[key], new_z[key]]) for key in z}
 
-        left -= length
+        i += length
 
-        save(file, (state, z))
-        print(num_samples - left, '/', num_samples, 'saved sample checkpoint:', file)
+        save(file, (state, z, i))
+        print(i, '/', num_samples, 'saved sample checkpoint:', file)
 
-    return state, z
+    return state, z, i
 
 
 def run(
@@ -128,13 +135,15 @@ def run(
     num_warmup,
     num_samples,
     num_checkpoint,
-    key = None,
+    num_progress = None,
+    rng_key = None,
     model_args = (),
     model_kwargs = {},
-    num_progress = None,
-    postprocess = False,
 ):
-    state, z = init(file, kernel, key, num_warmup, model_args, model_kwargs)
+    init_params = None
+    state = init(
+        file, kernel, rng_key, num_warmup, init_params, model_args, model_kwargs,
+    )
 
     state = warmup(
         file,
@@ -147,11 +156,10 @@ def run(
         model_kwargs,
     )
 
-    state, z = sample(
+    state = sample(
         file,
         kernel,
         state,
-        z,
         num_warmup,
         num_samples,
         num_checkpoint,
@@ -160,4 +168,4 @@ def run(
         model_kwargs,
     )
 
-    return state, z
+    return state
