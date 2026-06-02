@@ -62,14 +62,14 @@ def warmup(
                 length,
                 print_rate = num_progress,
                 tqdm_type = 'std',
-                desc = f'warmup {i} / {num_warmup}',
+                desc = f'warmup {i}-{i + length} / {num_warmup}',
             )(fn)
 
         state, _ = jax.lax.scan(fn, state, jnp.arange(length))
         i += length
 
         save(file, (state, z, i))
-        print(i, '/', num_warmup, 'saved warmup checkpoint:', file)
+        print(f'checkpoint {i} / {num_warmup}: {file}')
 
     return state, z, i
 
@@ -102,12 +102,13 @@ def sample(
                 length,
                 print_rate = num_progress,
                 tqdm_type = 'std',
-                desc = f'sample {i} / {num_samples}',
+                desc = f'sample {i - num_warmup}-{i - num_warmup + length} / {num_samples}',
             )(fn)
 
         state, new_z = jax.lax.scan(fn, state, jnp.arange(length))
 
         # TODO: maybe need to map or scan
+        print(f'postprocess {i - num_warmup}-{i - num_warmup + length}')
 #        new_z = numpyro.infer.util.constrain_fn(
 #            kernel.model, model_args, model_kwargs, new_z, return_deterministic = True,
 #        )
@@ -124,7 +125,7 @@ def sample(
         i += length
 
         save(file, (state, z, i))
-        print(i, '/', num_samples, 'saved sample checkpoint:', file)
+        print(f'checkpoint {i} / {num_warmup + num_samples}: {file}')
 
     return state, z, i
 
