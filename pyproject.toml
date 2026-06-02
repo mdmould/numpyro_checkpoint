@@ -11,7 +11,7 @@ authors = [
 description = "Run numpyro MCMC with checkpointing during warmup and sampling."
 readme = "README.md"
 requires-python = ">=3.11"
-dependencies = ['h5ify', 'jax', 'jax_tqdm', 'numpyro']
+dependencies = ['jax', 'jax_tqdm', 'numpyro']
 classifiers = [
     "Programming Language :: Python :: 3",
     "License :: OSI Approved :: MIT License",

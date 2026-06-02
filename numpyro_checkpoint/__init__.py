@@ -1,7 +1,6 @@
 import os
 import pickle
 
-import h5ify
 import jax
 import jax.numpy as jnp
 import jax_tqdm
