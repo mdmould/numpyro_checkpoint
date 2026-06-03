@@ -181,3 +181,97 @@ def run(
         model_kwargs,
     )
     return state
+
+
+def step(kernel, state, model_args, model_kwargs, length, num_progress, desc):
+    body_fn = lambda state: kernel.sample(state, model_args, model_kwargs)
+    postprocess_fn = kernel.postprocess_fn(model_args, model_kwargs)
+    transform = lambda state: postprocess_fn(state.z)
+    z, state = numpyro.util.fori_collect(
+        lower = 0,
+        upper = length,
+        body_fun = body_fn,
+        init_val = state,
+        transform = transform,
+        progbar = False if num_progress is None else True,
+        progress_rate = num_progress,
+        return_last_val = True,
+        # collection_size = None,
+        # thinning = 1,
+        # **progbar_opts,
+        progbar_desc = lambda i: desc,
+        diagnostics_fn = kernel.get_diagnostics_str,
+        # num_chains = 1,
+    )
+    return state, z
+
+
+def _run(
+    file,
+    kernel,
+    model_args,
+    model_kwargs,
+    rng_key,
+    init_params,
+    num_warmup,
+    num_samples,
+    num_checkpoint,
+    num_progress,
+):
+    if os.path.exists(file):
+        state, z, i = load(file)
+    else:
+        state = kernel.init(
+            rng_key = rng_key,
+            num_warmup = num_warmup,
+            init_params = init_params,
+            model_args = model_args,
+            model_kwargs = model_kwargs,
+        )
+        z = None
+        i = 0
+
+    body_fn = lambda state: kernel.sample(state, model_args, model_kwargs)
+    postprocess_fn = kernel.postprocess_fn(model_args, model_kwargs)
+    transform = lambda state: postprocess_fn(state.z)
+
+    while i < num_warmup + num_samples:
+        if i < num_warmup:
+            length = min(num_warmup - i, num_checkpoint)
+        else:
+            length = min(num_warmup + num_samples - i, num_checkpoint)
+
+        desc = 'warmup' if i < num_warmup else 'sample'
+        desc += f' {i}-{i + length} / {num_warmup + num_samples}'
+
+        new_z, state = numpyro.util.fori_collect(
+            lower = 0,
+            upper = length,
+            body_fun = body_fn,
+            init_val = state,
+            transform = transform,
+            progbar = False if num_progress is None else True,
+            progress_rate = num_progress,
+            return_last_val = True,
+            # collection_size = None,
+            # thinning = 1,
+            # **progbar_opts,
+            progbar_desc = lambda i: desc,
+            diagnostics_fn = kernel.get_diagnostics_str,
+            # num_chains = 1,
+        )
+
+        if i < num_warmup:
+            new_z = None
+
+        if z is None:
+            z = new_z
+        else:
+            z = {key: jnp.concatenate([z[key], new_z[key]]) for key in z}
+
+        i += length
+
+        print(f'checkpoint {i} / {num_warmup + num_samples}: {file}')
+        save(file, (state, z, i))
+
+    return state, z, i
