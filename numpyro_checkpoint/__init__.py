@@ -183,29 +183,6 @@ def run(
     return state
 
 
-def step(kernel, state, model_args, model_kwargs, length, num_progress, desc):
-    body_fn = lambda state: kernel.sample(state, model_args, model_kwargs)
-    postprocess_fn = kernel.postprocess_fn(model_args, model_kwargs)
-    transform = lambda state: postprocess_fn(state.z)
-    z, state = numpyro.util.fori_collect(
-        lower = 0,
-        upper = length,
-        body_fun = body_fn,
-        init_val = state,
-        transform = transform,
-        progbar = False if num_progress is None else True,
-        progress_rate = num_progress,
-        return_last_val = True,
-        # collection_size = None,
-        # thinning = 1,
-        # **progbar_opts,
-        progbar_desc = lambda i: desc,
-        diagnostics_fn = kernel.get_diagnostics_str,
-        # num_chains = 1,
-    )
-    return state, z
-
-
 def _run(
     file,
     kernel,
@@ -238,10 +215,10 @@ def _run(
     while i < num_warmup + num_samples:
         if i < num_warmup:
             length = min(num_warmup - i, num_checkpoint)
+            desc = 'warmup'
         else:
             length = min(num_warmup + num_samples - i, num_checkpoint)
-
-        desc = 'warmup' if i < num_warmup else 'sample'
+            desc = 'sample'
         desc += f' {i}-{i + length} / {num_warmup + num_samples}'
 
         new_z, state = numpyro.util.fori_collect(
