@@ -213,13 +213,13 @@ def _run(
     transform = lambda state: postprocess_fn(state.z)
 
     while i < num_warmup + num_samples:
+        desc = f'{i}-{i + length} / {num_warmup + num_samples}'
         if i < num_warmup:
             length = min(num_warmup - i, num_checkpoint)
-            desc = 'warmup'
+            desc += ' warmup'
         else:
             length = min(num_warmup + num_samples - i, num_checkpoint)
-            desc = 'sample'
-        desc += f' {i}-{i + length} / {num_warmup + num_samples}'
+            desc += ' sample'
 
         new_z, state = numpyro.util.fori_collect(
             lower = 0,
