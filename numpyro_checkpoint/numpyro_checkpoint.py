@@ -2,7 +2,6 @@ import os
 import pickle
 
 import h5ify
-import jax_tqdm
 import numpy as np
 import numpyro
 
