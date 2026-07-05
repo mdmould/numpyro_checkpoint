@@ -7,22 +7,28 @@ import numpyro
 
 
 # TODO: make serialization safe
-def save(file, data):
+def save_state(file, data):
     with open(file, 'wb') as f:
         pickle.dump(data, f)
 
 
-def load(file):
+def load_state(file):
     with open(file, 'rb') as f:
         return pickle.load(f)
 
 
-def postprocess(file):
+def load_samples(file):
     z = h5ify.load(file)
     keys = list(z[list(z.keys())[0]].keys())
     z = {key: np.concatenate([z[i][key] for i in z]) for key in keys}
-    h5ify.save(file, z, mode = 'w')
     return z
+
+# def postprocess(file):
+#     z = h5ify.load(file)
+#     keys = list(z[list(z.keys())[0]].keys())
+#     z = {key: np.concatenate([z[i][key] for i in z]) for key in keys}
+#     h5ify.save(file, z, mode = 'w')
+#     return z
 
 
 def run(
@@ -38,7 +44,7 @@ def run(
     init_params = None,
 ):
     if os.path.exists(f'{label}.pkl'):
-        state, i = load(f'{label}.pkl')
+        state, i = load_state(f'{label}.pkl')
     else:
         assert rng_key is not None
         state = kernel.init(
@@ -83,12 +89,13 @@ def run(
         i += length
 
         print(f'checkpoint {i} / {num_warmup + num_samples}: {label}.pkl')
-        save(f'{label}.pkl', (state, i))
+        save_state(f'{label}.pkl', (state, i))
 
         if i > num_warmup:
             print(f'samples {i - num_warmup} / {num_samples}: {label}.h5')
             h5ify.save(f'{label}.h5', {str(i - num_warmup): z})
 
-    z = postprocess(f'{label}.h5')
+    # z = postprocess(f'{label}.h5')
+    z = load_samples(f'{label}.h5')
 
     return state, i, z
