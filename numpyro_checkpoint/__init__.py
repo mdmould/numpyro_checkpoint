@@ -1,1 +1,1 @@
-from .numpyro_checkpoint import run
+from .numpyro_checkpoint import run, load_samples
