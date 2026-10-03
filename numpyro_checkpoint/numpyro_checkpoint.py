@@ -82,7 +82,12 @@ def run(
             # thinning = 1,
             # **progbar_opts,
             progbar_desc = lambda i: desc,
-            diagnostics_fn = kernel.get_diagnostics_str,
+            # diagnostics_fn = kernel.get_diagnostics_str,
+            diagnostics_fn = lambda state: (
+                f'{state.num_steps}, '
+                f'{state.adapt_state.step_size:.2e}, '
+                f'{state.mean_accept_prob:.2f}'
+            ),
             # num_chains = 1,
         )
 
